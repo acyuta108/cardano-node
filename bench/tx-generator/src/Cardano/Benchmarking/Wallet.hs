@@ -94,8 +94,9 @@ includeChange have spend = case compare changeValue 0 of
 genTx :: forall era. IsShelleyBasedEra era
   => SigningKey PaymentKey
   -> NetworkId
+  -> TxMetadataInEra era
   -> TxGenerator era
-genTx key networkId inFunds outValues validity
+genTx key networkId metadata inFunds outValues validity
   = case makeTransactionBody txBodyContent of
       Left err -> error $ show err
       Right b -> Right ( signShelleyTransaction b (map (WitnessPaymentKey . getFundKey) inFunds)
@@ -108,7 +109,7 @@ genTx key networkId inFunds outValues validity
     , txOuts = map mkTxOut outValues
     , txFee = mkFee 0
     , txValidityRange = (TxValidityNoLowerBound, upperBound)
-    , txMetadata = TxMetadataNone
+    , txMetadata = metadata
     , txAuxScripts = TxAuxScriptsNone
     , txExtraScriptData = BuildTxWith TxExtraScriptDataNone
     , txExtraKeyWits = TxExtraKeyWitnessesNone
@@ -165,15 +166,16 @@ data WalletStep era
 benchmarkWalletScript :: forall era .
      IsShelleyBasedEra era
   => WalletRef
+  -> TxMetadataInEra era
   -> NumberOfTxs
   -> NumberOfOutputsPerTx
   -- in this version : numberOfInputs == numberOfOutputs
   -> Target
   -> WalletScript era
-benchmarkWalletScript wRef (NumberOfTxs maxCount) (NumberOfOutputsPerTx numInputs) targetNode
+benchmarkWalletScript wRef metadata (NumberOfTxs maxCount) (NumberOfOutputsPerTx numInputs) targetNode
   = WalletScript (modifyMVarMasked wRef nextTx)
  where
-  nextCall = benchmarkWalletScript wRef (NumberOfTxs maxCount) (NumberOfOutputsPerTx numInputs) targetNode
+  nextCall = benchmarkWalletScript wRef metadata (NumberOfTxs maxCount) (NumberOfOutputsPerTx numInputs) targetNode
 
   nextTx :: Wallet -> IO (Wallet, WalletStep era)
   nextTx w = if walletSeqNumber w > SeqNumber (fromIntegral maxCount)
@@ -183,7 +185,7 @@ benchmarkWalletScript wRef (NumberOfTxs maxCount) (NumberOfOutputsPerTx numInput
       Left err -> return (w, Error err)
   selector = selectCountTarget numInputs targetNode
 
-  txGenerator w = genTx (walletKey w) (walletNetworkId w)
+  txGenerator w = genTx (walletKey w) (walletNetworkId w) metadata
 
 limitSteps ::
      NumberOfTxs
