@@ -323,20 +323,10 @@ runBenchmarkInEra :: forall era. IsShelleyBasedEra era => AsType era -> ThreadNa
 runBenchmarkInEra era (ThreadName threadName) txCount tps = do
   tracers  <- get BenchTracers
   targets  <- getUser TTargets
-  (Testnet networkMagic) <- get NetworkId
-  protocol <- get Protocol
   walletRef <- get GlobalWallet
   metadata <- makeMetadata
-  ioManager <- askIOManager
+  connectClient <- getConnectClient
   let
-    connectClient :: ConnectClient
-    connectClient  = benchmarkConnectTxSubmit
-                       ioManager
-                       (btConnect_ tracers)
-                       (btSubmission2_ tracers)
-                       (protocolToCodecConfig protocol)
-                       networkMagic
-
     walletScript :: FundSet.Target -> WalletScript era
     walletScript = benchmarkWalletScript walletRef metadata txCount 2
 
