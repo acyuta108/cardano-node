@@ -252,7 +252,7 @@ foldBlocks nodeConfigFilePath socketPath networkId enableValidation state0 accum
     connectInfo :: LocalNodeConnectInfo CardanoMode
     connectInfo =
         LocalNodeConnectInfo {
-          localConsensusModeParams = CardanoModeParams (EpochSlots 21600),
+          localConsensusModeParams = CardanoModeParams (EpochSlots 360),
           localNodeNetworkId       = networkId,
           localNodeSocketPath      = socketPath
         }

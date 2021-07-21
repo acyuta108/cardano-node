@@ -42,6 +42,7 @@ executable ledger-state
                        base16-bytestring,
                        bytestring,
                        containers,
+                       strict-containers,
                        filepath,
                        memory,
                        mtl,
@@ -66,4 +67,5 @@ executable ledger-state
                        ouroboros-consensus-byron,
                        ouroboros-consensus-shelley,
                        shelley-spec-ledger,
+                       cardano-ledger-shelley-ma,
                        typed-protocols,

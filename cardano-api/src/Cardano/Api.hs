@@ -146,7 +146,7 @@ module Cardano.Api (
     -- | Constructing and inspecting transactions
 
     -- ** Transaction bodies
-    TxBody,
+    TxBody (..),
     makeTransactionBody,
     TxBodyContent(..),
     TxBodyError(..),
