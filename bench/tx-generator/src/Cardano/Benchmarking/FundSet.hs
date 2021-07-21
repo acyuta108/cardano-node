@@ -140,13 +140,13 @@ selectMinValue minValue fs = case coins of
 
 selectPlutusFund :: FundSet -> Either String [Fund]
 selectPlutusFund fs = case coins of
-    [] -> Left $ "no Plutus fund found"
+    [] -> Left "no Plutus fund found"
     (c:_) -> Right [c]
     where coins = toAscList ( Proxy :: Proxy Lovelace) (fs @=PlutusScriptFund @= IsConfirmed )
 
 selectCollateral :: FundSet -> Either String [Fund]
 selectCollateral fs = case coins of
-  [] -> Left $ "no matching none-Plutus fund found"
+  [] -> Left "no matching none-Plutus fund found"
   (c:_) -> Right [c]
  where
   coins = toAscList ( Proxy :: Proxy Lovelace) (fs @=PlainOldFund @= IsConfirmed @= (1492000000 :: Lovelace) )

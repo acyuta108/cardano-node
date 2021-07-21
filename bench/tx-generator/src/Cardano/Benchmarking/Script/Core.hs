@@ -20,7 +20,7 @@ import           Control.Monad
 import           Control.Monad.Trans.Except
 import           Control.Monad.IO.Class
 import           Control.Concurrent (threadDelay)
-import           Control.Tracer (traceWith)
+import           Control.Tracer (traceWith, nullTracer)
 
 import           Ouroboros.Network.Protocol.LocalTxSubmission.Type (SubmitResult (..))
 import           Cardano.Api ( AlonzoEra, AsType(..), CardanoEra(..), InAnyCardanoEra(..), AnyCardanoEra(..), IsShelleyBasedEra, Tx
@@ -211,11 +211,12 @@ getConnectClient = do
   tracers  <- get BenchTracers
   (Testnet networkMagic) <- get NetworkId
   protocol <- get Protocol
+  void $ return $(btSubmission2_ tracers)
   ioManager <- askIOManager
   return $ benchmarkConnectTxSubmit
                        ioManager
                        (btConnect_ tracers)
-                       (btSubmission2_ tracers)
+                       nullTracer -- (btSubmission2_ tracers)
                        (protocolToCodecConfig protocol)
                        networkMagic
   
@@ -305,8 +306,7 @@ localSubmitTx tx = do
   ret <- liftIO $ submit tx
   let
     msg = case ret of
-      SubmitSuccess -> mconcat
-        [ "local submit success (" , show tx , ")"]
+      SubmitSuccess -> "local submit success."
       SubmitFail e -> mconcat
         [ "local submit failed: " , show e , " (" , show tx , ")"]
   liftIO $ traceWith submitTracer $ TraceBenchTxSubDebug msg
@@ -319,8 +319,13 @@ makeMetadata = do
     Right m -> return m
     Left err -> throwE $ MetadataError err
 
-runBenchmarkInEra :: forall era. IsShelleyBasedEra era => AsType era -> ThreadName -> NumberOfTxs -> TPSRate -> ActionM ()
-runBenchmarkInEra era (ThreadName threadName) txCount tps = do
+-- TODO use withEra here!
+runBenchmark :: ThreadName -> NumberOfTxs -> TPSRate -> ActionM ()
+runBenchmark threadName txCount tps
+  = withEra $ runBenchmarkInEra threadName txCount tps
+
+runBenchmarkInEra :: forall era. IsShelleyBasedEra era => ThreadName -> NumberOfTxs -> TPSRate -> AsType era -> ActionM ()
+runBenchmarkInEra (ThreadName threadName) txCount tps era = do
   tracers  <- get BenchTracers
   targets  <- getUser TTargets
   walletRef <- get GlobalWallet
@@ -348,7 +353,10 @@ runPlutusBenchmark (ThreadName threadName) txCount tps = do
   walletRef <- get GlobalWallet
   fundKey <- getName $ KeyName "pass-partout"
   (PlutusScript PlutusScriptV1 script) <- liftIO $ PlutusExample.readScript "bench/script/sum1ToN.plutus"
-  collateral <- (liftIO $ askWalletRef walletRef (\w -> FundSet.selectCollateral $ walletFunds w)) >>= \case
+  collateral <- liftIO ( askWalletRef walletRef (FundSet.selectCollateral . walletFunds)) >>= \case
+    -- TODO !! FIX THIS BUG !
+    -- This just selects one UTxO as colleteral, but I have to also remove it from the wallet.
+    -- Otherwise it may be spend accidentially
     Right c -> return c
     Left err -> throwE $ WalletError err
   connectClient <- getConnectClient
@@ -356,6 +364,7 @@ runPlutusBenchmark (ThreadName threadName) txCount tps = do
     walletScript :: FundSet.Target -> WalletScript AlonzoEra
     walletScript = plutusWalletScript fundKey script networkId protocolParameters collateral walletRef txCount
 
+--  TODO: this is useful for debugging: add to JSON scripting language
 --  localTestWalletScript $ walletScript $ FundSet.Target "local"
 
   ret <- liftIO $ runExceptT $
@@ -365,16 +374,6 @@ runPlutusBenchmark (ThreadName threadName) txCount tps = do
     Left err -> liftTxGenError err
     Right ctl -> do
       setName (ThreadName threadName) ctl
-
-runBenchmark :: ThreadName -> NumberOfTxs -> TPSRate -> ActionM ()
-runBenchmark threadName txCount tps = do
-  era <- getUser TEra
-  case era of
-    AnyCardanoEra AlonzoEra  -> runBenchmarkInEra AsAlonzoEra threadName txCount tps
-    AnyCardanoEra MaryEra    -> runBenchmarkInEra AsMaryEra threadName txCount tps
-    AnyCardanoEra AllegraEra -> runBenchmarkInEra AsAllegraEra threadName txCount tps
-    AnyCardanoEra ShelleyEra -> runBenchmarkInEra AsShelleyEra threadName txCount tps
-    AnyCardanoEra ByronEra   -> error "byron not supported"
 
 -- Todo: make it possible to import several funds
 -- (Split init and import)

@@ -96,13 +96,13 @@ createTracers loggingLayer =
   connectTracer = toLogObjectVerbose (appendName "connect" tr')
 
   submitTracer :: Tracer IO SendRecvTxSubmission2
-  submitTracer = toLogObjectVerbose (appendName "connect" tr')
+  submitTracer = toLogObjectVerbose (appendName "submit" tr')
 
   lowLevelSubmitTracer :: Tracer IO TraceLowLevelSubmit
-  lowLevelSubmitTracer = toLogObjectVerbose (appendName "llSubmit" tr')
+  lowLevelSubmitTracer = toLogObjectMinimal (appendName "llSubmit" tr')
 
   n2nSubmitTracer :: Tracer IO NodeToNodeSubmissionTrace
-  n2nSubmitTracer = toLogObjectVerbose (appendName "submit2" tr')
+  n2nSubmitTracer = toLogObjectMinimal (appendName "submitN2N" tr')
 
 {-------------------------------------------------------------------------------
   Overall benchmarking trace

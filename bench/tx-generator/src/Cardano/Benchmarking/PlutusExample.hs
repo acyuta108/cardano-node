@@ -1,7 +1,6 @@
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TypeApplications #-}
 module Cardano.Benchmarking.PlutusExample
 where
 import Prelude
@@ -71,13 +70,13 @@ readScript fp = do
   res <- runExceptT $ readFileScriptInAnyLang fp
   case res of
     Left err -> do
-      putStrLn $ show err
+      print err
       error $ show err
     Right (ScriptInAnyLang (PlutusScriptLanguage PlutusScriptV1) script) -> return script
     Right _otherScript ->
       error "Wrong script version."
 
-toScriptHash :: String -> (Hash ScriptData)
+toScriptHash :: String -> Hash ScriptData
 toScriptHash str
   = case deserialiseFromRawBytesHex (AsHash AsScriptData) (BSC.pack str) of
     Just x -> x
@@ -85,7 +84,7 @@ toScriptHash str
 
 spendFromScript ::
       SigningKey PaymentKey
-  -> (PlutusScript PlutusScriptV1)
+  -> PlutusScript PlutusScriptV1
   -> NetworkId
   -> ProtocolParameters
   -> [Fund]
@@ -102,7 +101,7 @@ spendFromScript key script networkId protocolParameters collateral inFunds valid
       txIns = map (\f -> (getFundTxIn f, BuildTxWith $ ScriptWitness ScriptWitnessForSpending plutusScriptWitness )) inFunds
     , txInsCollateral = TxInsCollateral CollateralInAlonzoEra $  map getFundTxIn collateral
     , txOuts = [mkTxOut outValue]
-    , txFee = mkFee $ (fromIntegral requiredSteps) + (fromIntegral requiredMemory)
+    , txFee = mkFee (fromIntegral requiredSteps + fromIntegral requiredMemory)
     , txValidityRange = (TxValidityNoLowerBound, TxValidityNoUpperBound ValidityNoUpperBoundInAlonzoEra)
     , txMetadata = TxMetadataNone
     , txAuxScripts = TxAuxScriptsNone
@@ -126,7 +125,7 @@ spendFromScript key script networkId protocolParameters collateral inFunds valid
                           (ExecutionUnits requiredSteps requiredMemory)
                           
 
-  outValue = (sum $ map getFundLovelace inFunds) - (fromIntegral requiredSteps) - (fromIntegral requiredMemory)
+  outValue = sum (map getFundLovelace inFunds) - fromIntegral requiredSteps - fromIntegral requiredMemory
 
   mkTxOut v = TxOut (Tx.keyAddress  networkId key) (mkTxOutValueAdaOnly v) TxOutDatumHashNone
 
@@ -144,7 +143,7 @@ spendFromScript key script networkId protocolParameters collateral inFunds valid
 
 plutusWalletScript :: 
       SigningKey PaymentKey
-  -> (PlutusScript PlutusScriptV1)
+  -> PlutusScript PlutusScriptV1
   -> NetworkId
   -> ProtocolParameters  
   -> [Fund]
