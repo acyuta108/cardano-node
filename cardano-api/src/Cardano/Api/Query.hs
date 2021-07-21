@@ -239,7 +239,7 @@ data QueryUTxOFilter =
 newtype ByronUpdateState = ByronUpdateState Byron.Update.State
   deriving Show
 
-newtype UTxO era = UTxO (Map TxIn (TxOut era))
+newtype UTxO era = UTxO (Map TxIn (TxOut CtxUTxO era))
 
 instance IsCardanoEra era => ToJSON (UTxO era) where
   toJSON (UTxO m) = toJSON m

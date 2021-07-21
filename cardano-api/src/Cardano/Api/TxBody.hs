@@ -38,11 +38,11 @@ module Cardano.Api.TxBody (
     genesisUTxOPseudoTxIn,
 
     -- * Transaction outputs
+    CtxTx, CtxUTxO,
     TxOut(..),
     TxOutValue(..),
+    TxOutDatum(TxOutDatumNone, TxOutDatumHash, TxOutDatum),
     lovelaceToTxOutValue,
-    serialiseAddressForTxOut,
-    TxOutDatumHash(..),
 
     -- * Other transaction body types
     TxInsCollateral(..),
@@ -51,7 +51,6 @@ module Cardano.Api.TxBody (
     TxValidityUpperBound(..),
     TxMetadataInEra(..),
     TxAuxScripts(..),
-    TxExtraScriptData(..),
     TxExtraKeyWitnesses(..),
     TxWithdrawals(..),
     TxCertificates(..),
@@ -174,6 +173,7 @@ import qualified Cardano.Ledger.ShelleyMA.AuxiliaryData as Allegra
 import qualified Cardano.Ledger.ShelleyMA.AuxiliaryData as Mary
 import qualified Cardano.Ledger.ShelleyMA.TxBody as Allegra
 import qualified Cardano.Ledger.ShelleyMA.TxBody as Mary
+import qualified Cardano.Ledger.Mary.Value       as Mary
 import           Cardano.Ledger.Val (isZero)
 
 import qualified Cardano.Ledger.Alonzo as Alonzo
@@ -198,7 +198,7 @@ import           Cardano.Api.KeysShelley
 import           Cardano.Api.NetworkId
 import           Cardano.Api.ProtocolParameters
 import           Cardano.Api.Script
-import           Cardano.Api.SerialiseBech32
+import           Cardano.Api.ScriptData
 import           Cardano.Api.SerialiseCBOR
 import           Cardano.Api.SerialiseJSON
 import           Cardano.Api.SerialiseRaw
@@ -323,41 +323,43 @@ fromShelleyTxIn (Shelley.TxIn txid txix) =
 -- Transaction outputs
 --
 
-data TxOut era = TxOut (AddressInEra era)
-                       (TxOutValue era)
-                       (TxOutDatumHash era)
-  deriving Generic
+data CtxTx   -- ^ The context is a transaction body
+data CtxUTxO -- ^ The context is the UTxO
 
-deriving instance Eq   (TxOut era)
-deriving instance Show (TxOut era)
+data TxOut ctx era = TxOut (AddressInEra   era)
+                           (TxOutValue     era)
+                           (TxOutDatum ctx era)
 
-instance IsCardanoEra era => ToJSON (TxOut era) where
-  toJSON (TxOut addr val TxOutDatumHashNone) =
-    object [ "address" .= serialiseAddressForTxOut addr
-           , "value"   .= toJSON val
+deriving instance Eq   (TxOut ctx era)
+deriving instance Show (TxOut ctx era)
+
+instance IsCardanoEra era => ToJSON (TxOut ctx era) where
+  toJSON (TxOut addr val TxOutDatumNone) =
+    object [ "address" .= addr
+           , "value"   .= val
            ]
-  toJSON (TxOut addr val (TxOutDatumHash _ d)) =
-    object [ "address" .= serialiseAddressForTxOut addr
-           , "value"   .= toJSON val
-           , "data"    .= toJSON d
+  toJSON (TxOut addr val (TxOutDatumHash _ h)) =
+    object [ "address"   .= addr
+           , "value"     .= val
+           , "datumhash" .= h
+           ]
+  toJSON (TxOut addr val (TxOutDatum' _ h d)) =
+    object [ "address"   .= addr
+           , "value"     .= val
+           , "datumhash" .= h
+           , "datum"     .= scriptDataToJson ScriptDataJsonDetailedSchema d
            ]
 
-serialiseAddressForTxOut :: AddressInEra era -> Text
-serialiseAddressForTxOut (AddressInEra addrType addr) =
-  case addrType of
-    ByronAddressInAnyEra  -> serialiseToRawBytesHexText addr
-    ShelleyAddressInEra _ -> serialiseToBech32 addr
 
-
-fromByronTxOut :: Byron.TxOut -> TxOut ByronEra
+fromByronTxOut :: Byron.TxOut -> TxOut ctx ByronEra
 fromByronTxOut (Byron.TxOut addr value) =
   TxOut
     (AddressInEra ByronAddressInAnyEra (ByronAddress addr))
     (TxOutAdaOnly AdaOnlyInByronEra (fromByronLovelace value))
-     TxOutDatumHashNone
+     TxOutDatumNone
 
 
-toByronTxOut :: TxOut ByronEra -> Maybe Byron.TxOut
+toByronTxOut :: TxOut ctx ByronEra -> Maybe Byron.TxOut
 toByronTxOut (TxOut (AddressInEra ByronAddressInAnyEra (ByronAddress addr))
                     (TxOutAdaOnly AdaOnlyInByronEra value) _) =
     Byron.TxOut addr <$> toByronLovelace value
@@ -372,7 +374,7 @@ toByronTxOut (TxOut (AddressInEra (ShelleyAddressInEra era) ShelleyAddress{})
 toShelleyTxOut :: forall era ledgerera.
                   ShelleyLedgerEra era ~ ledgerera
                => ShelleyBasedEra era
-               -> TxOut era
+               -> TxOut CtxUTxO era
                -> Ledger.TxOut ledgerera
 toShelleyTxOut era (TxOut _ (TxOutAdaOnly AdaOnlyInByronEra _) _) =
     case era of {}
@@ -393,14 +395,14 @@ toShelleyTxOut _ (TxOut addr (TxOutValue MultiAssetInAlonzoEra value) txoutdata)
 fromShelleyTxOut :: ShelleyLedgerEra era ~ ledgerera
                  => ShelleyBasedEra era
                  -> Core.TxOut ledgerera
-                 -> TxOut era
+                 -> TxOut ctx era
 fromShelleyTxOut era ledgerTxOut =
   case era of
     ShelleyBasedEraShelley ->
         TxOut (fromShelleyAddr addr)
               (TxOutAdaOnly AdaOnlyInShelleyEra
                             (fromShelleyLovelace value))
-               TxOutDatumHashNone
+               TxOutDatumNone
       where
         Shelley.TxOut addr value = ledgerTxOut
 
@@ -408,7 +410,7 @@ fromShelleyTxOut era ledgerTxOut =
         TxOut (fromShelleyAddr addr)
               (TxOutAdaOnly AdaOnlyInAllegraEra
                             (fromShelleyLovelace value))
-               TxOutDatumHashNone
+               TxOutDatumNone
       where
         Shelley.TxOut addr value = ledgerTxOut
 
@@ -416,7 +418,7 @@ fromShelleyTxOut era ledgerTxOut =
         TxOut (fromShelleyAddr addr)
               (TxOutValue MultiAssetInMaryEra
                           (fromMaryValue value))
-               TxOutDatumHashNone
+               TxOutDatumNone
       where
         Shelley.TxOut addr value = ledgerTxOut
 
@@ -428,15 +430,15 @@ fromShelleyTxOut era ledgerTxOut =
       where
         Alonzo.TxOut addr value datahash = ledgerTxOut
 
-toAlonzoTxOutDataHash :: TxOutDatumHash era
+toAlonzoTxOutDataHash :: TxOutDatum CtxUTxO era
                       -> StrictMaybe (Alonzo.DataHash StandardCrypto)
-toAlonzoTxOutDataHash TxOutDatumHashNone    = SNothing
+toAlonzoTxOutDataHash  TxOutDatumNone                        = SNothing
 toAlonzoTxOutDataHash (TxOutDatumHash _ (ScriptDataHash dh)) = SJust dh
 
 fromAlonzoTxOutDataHash :: ScriptDataSupportedInEra era
                         -> StrictMaybe (Alonzo.DataHash StandardCrypto)
-                        -> TxOutDatumHash era
-fromAlonzoTxOutDataHash _    SNothing  = TxOutDatumHashNone
+                        -> TxOutDatum ctx era
+fromAlonzoTxOutDataHash _    SNothing  = TxOutDatumNone
 fromAlonzoTxOutDataHash era (SJust dh) = TxOutDatumHash era (ScriptDataHash dh)
 
 
@@ -861,17 +863,38 @@ lovelaceToTxOutValue l =
 -- Transaction output datum (era-dependent)
 --
 
-data TxOutDatumHash era where
+data TxOutDatum ctx era where
 
-     TxOutDatumHashNone :: TxOutDatumHash era
+     TxOutDatumNone :: TxOutDatum ctx era
 
-     TxOutDatumHash     :: ScriptDataSupportedInEra era
-                        -> Hash ScriptData
-                        -> TxOutDatumHash era
+     -- | A transaction output that only specifies the hash of the datum, but
+     -- not the full datum value.
+     --
+     TxOutDatumHash :: ScriptDataSupportedInEra era
+                    -> Hash ScriptData
+                    -> TxOutDatum ctx era
 
-deriving instance Eq   (TxOutDatumHash era)
-deriving instance Show (TxOutDatumHash era)
-deriving instance Generic (TxOutDatumHash era)
+     -- | A transaction output that specifies the whole datum value. This can
+     -- only be used in the context of the transaction body, and does not occur
+     -- in the UTxO. The UTxO only contains the datum hash.
+     --
+     TxOutDatum'    :: ScriptDataSupportedInEra era
+                    -> Hash ScriptData
+                    -> ScriptData
+                    -> TxOutDatum CtxTx era
+
+deriving instance Eq   (TxOutDatum ctx era)
+deriving instance Show (TxOutDatum ctx era)
+
+pattern TxOutDatum :: ScriptDataSupportedInEra era
+                   -> ScriptData
+                   -> TxOutDatum CtxTx era
+pattern TxOutDatum s d  <- TxOutDatum' s _ d
+  where
+    TxOutDatum s d = TxOutDatum' s (hashScriptData d) d
+
+{-# COMPLETE TxOutDatumNone, TxOutDatumHash, TxOutDatum' #-}
+{-# COMPLETE TxOutDatumNone, TxOutDatumHash, TxOutDatum  #-}
 
 
 -- ----------------------------------------------------------------------------
@@ -966,22 +989,6 @@ deriving instance Eq   (TxExtraKeyWitnesses era)
 deriving instance Show (TxExtraKeyWitnesses era)
 
 -- ----------------------------------------------------------------------------
--- Auxiliary script data (era-dependent)
---
-
-data TxExtraScriptData era where
-
-     TxExtraScriptDataNone :: TxExtraScriptData era
-
-     TxExtraScriptData     :: ScriptDataSupportedInEra era
-                           -> [ScriptData]
-                           -> TxExtraScriptData era
-
-deriving instance Eq   (TxExtraScriptData era)
-deriving instance Show (TxExtraScriptData era)
-
-
--- ----------------------------------------------------------------------------
 -- Withdrawals within transactions (era-dependent)
 --
 
@@ -1058,13 +1065,12 @@ data TxBodyContent build era =
      TxBodyContent {
        txIns            :: TxIns build era,
        txInsCollateral  :: TxInsCollateral era,
-       txOuts           :: [TxOut era],
+       txOuts           :: [TxOut CtxTx era],
        txFee            :: TxFee era,
        txValidityRange  :: (TxValidityLowerBound era,
                             TxValidityUpperBound era),
        txMetadata       :: TxMetadataInEra era,
        txAuxScripts     :: TxAuxScripts era,
-       txExtraScriptData:: BuildTxWith build (TxExtraScriptData era),
        txExtraKeyWits   :: TxExtraKeyWitnesses era,
        txProtocolParams :: BuildTxWith build (Maybe ProtocolParameters),
        txWithdrawals    :: TxWithdrawals  build era,
@@ -1363,8 +1369,8 @@ data TxBodyError era =
        TxBodyEmptyTxIns
      | TxBodyEmptyTxInsCollateral
      | TxBodyEmptyTxOuts
-     | TxBodyOutputNegative Quantity (TxOut era)
-     | TxBodyOutputOverflow Quantity (TxOut era)
+     | TxBodyOutputNegative Quantity (TxOut CtxTx era)
+     | TxBodyOutputOverflow Quantity (TxOut CtxTx era)
      | TxBodyMetadataError [(Word64, TxMetadataRangeError)]
      | TxBodyMintAdaError
      | TxBodyAuxDataHashInvalidError
@@ -1417,20 +1423,21 @@ pattern TxBody txbodycontent <- (getTxBodyContent -> txbodycontent)
 
 getTxBodyContent :: TxBody era -> TxBodyContent ViewTx era
 getTxBodyContent (ByronTxBody body) = getByronTxBodyContent body
-getTxBodyContent (ShelleyTxBody era body _scripts _redeemers mAux) =
-    fromLedgerTxBody era body mAux
+getTxBodyContent (ShelleyTxBody era body _scripts scriptdata mAux) =
+    fromLedgerTxBody era body scriptdata mAux
 
 
 fromLedgerTxBody
   :: ShelleyBasedEra era
   -> Ledger.TxBody (ShelleyLedgerEra era)
+  -> TxBodyScriptData era
   -> Maybe (Ledger.AuxiliaryData (ShelleyLedgerEra era))
   -> TxBodyContent ViewTx era
-fromLedgerTxBody era body mAux =
+fromLedgerTxBody era body scriptdata mAux =
     TxBodyContent
       { txIns            = fromLedgerTxIns            era body
       , txInsCollateral  = fromLedgerTxInsCollateral  era body
-      , txOuts           = fromLedgerTxOuts           era body
+      , txOuts           = fromLedgerTxOuts           era body scriptdata
       , txFee            = fromLedgerTxFee            era body
       , txValidityRange  = fromLedgerTxValidityRange  era body
       , txWithdrawals    = fromLedgerTxWithdrawals    era body
@@ -1441,7 +1448,6 @@ fromLedgerTxBody era body mAux =
       , txProtocolParams = ViewTx
       , txMetadata
       , txAuxScripts
-      , txExtraScriptData = ViewTx
       }
   where
     (txMetadata, txAuxScripts) = fromLedgerTxAuxiliaryData era mAux
@@ -1487,14 +1493,60 @@ fromLedgerTxInsCollateral era body =
 
 
 fromLedgerTxOuts
-  :: ShelleyBasedEra era -> Ledger.TxBody (ShelleyLedgerEra era) -> [TxOut era]
-fromLedgerTxOuts era body =
-  fromShelleyTxOut era <$>
+  :: forall era.
+     ShelleyBasedEra era
+  -> Ledger.TxBody (ShelleyLedgerEra era)
+  -> TxBodyScriptData era
+  -> [TxOut CtxTx era]
+fromLedgerTxOuts era body scriptdata =
   case era of
-    ShelleyBasedEraShelley -> toList $ Shelley._outputs body
-    ShelleyBasedEraAllegra -> toList $ Allegra.outputs' body
-    ShelleyBasedEraMary    -> toList $ Mary.outputs'    body
-    ShelleyBasedEraAlonzo  -> toList $ Alonzo.outputs'  body
+    ShelleyBasedEraShelley ->
+      [ fromShelleyTxOut era txout | txout <- toList (Shelley._outputs body) ]
+
+    ShelleyBasedEraAllegra ->
+      [ fromShelleyTxOut era txout | txout <- toList (Allegra.outputs' body) ]
+
+    ShelleyBasedEraMary ->
+      [ fromShelleyTxOut era txout | txout <- toList (Mary.outputs' body) ]
+
+    ShelleyBasedEraAlonzo ->
+      [ fromAlonzoTxOut
+          MultiAssetInAlonzoEra
+          ScriptDataInAlonzoEra
+          txdatums
+          txout
+      | let txdatums = selectTxDatums scriptdata
+      , txout <- toList (Alonzo.outputs' body) ]
+  where
+    selectTxDatums  TxBodyNoScriptData                            = Map.empty
+    selectTxDatums (TxBodyScriptData _ (Alonzo.TxDats' datums) _) = datums
+
+fromAlonzoTxOut :: forall era ledgerera.
+                   IsShelleyBasedEra era
+                => Ledger.Era ledgerera
+                => Ledger.Crypto ledgerera ~ StandardCrypto
+                => Ledger.Value ledgerera ~ Mary.Value StandardCrypto
+                => MultiAssetSupportedInEra era
+                -> ScriptDataSupportedInEra era
+                -> Map (Alonzo.DataHash StandardCrypto)
+                       (Alonzo.Data ledgerera)
+                -> Alonzo.TxOut ledgerera
+                -> TxOut CtxTx era
+fromAlonzoTxOut multiAssetInEra scriptDataInEra txdatums
+                (Alonzo.TxOut addr value datahash) =
+   TxOut (fromShelleyAddr addr)
+         (TxOutValue multiAssetInEra (fromMaryValue value))
+         (fromAlonzoTxOutDatum scriptDataInEra datahash)
+  where
+    fromAlonzoTxOutDatum :: ScriptDataSupportedInEra era
+                         -> StrictMaybe (Alonzo.DataHash StandardCrypto)
+                         -> TxOutDatum CtxTx era
+    fromAlonzoTxOutDatum _          SNothing = TxOutDatumNone
+    fromAlonzoTxOutDatum supported (SJust dh)
+      | Just d <- Map.lookup dh txdatums
+                  = TxOutDatum'    supported (ScriptDataHash dh)
+                                             (fromAlonzoData d)
+      | otherwise = TxOutDatumHash supported (ScriptDataHash dh)
 
 
 fromLedgerTxFee
@@ -1795,7 +1847,7 @@ makeByronTransactionBody TxBodyContent { txIns, txOuts } = do
             (Byron.UnsafeTx ins'' outs'' (Byron.mkAttributes ()))
             ()
   where
-    classifyRangeError :: TxOut ByronEra -> TxBodyError ByronEra
+    classifyRangeError :: TxOut CtxTx ByronEra -> TxBodyError ByronEra
     classifyRangeError
       txout@(TxOut (AddressInEra ByronAddressInAnyEra ByronAddress{})
                    (TxOutAdaOnly AdaOnlyInByronEra value) _)
@@ -1824,7 +1876,6 @@ getByronTxBodyContent (Annotated Byron.UnsafeTx{txInputs, txOutputs} _) =
                             ValidityNoUpperBoundInByronEra),
       txMetadata       = TxMetadataNone,
       txAuxScripts     = TxAuxScriptsNone,
-      txExtraScriptData= ViewTx,
       txExtraKeyWits   = TxExtraKeyWitnessesNone,
       txProtocolParams = ViewTx,
       txWithdrawals    = TxWithdrawalsNone,
@@ -1862,7 +1913,7 @@ makeShelleyTransactionBody era@ShelleyBasedEraShelley
       ShelleyTxBody era
         (Shelley.TxBody
           (Set.fromList (map (toShelleyTxIn . fst) txIns))
-          (Seq.fromList (map (toShelleyTxOut era) txOuts))
+          (Seq.fromList (map (toShelleyTxOut' era) txOuts))
           (case txCertificates of
              TxCertificatesNone    -> Seq.empty
              TxCertificates _ cs _ -> Seq.fromList (map toShelleyCertificate cs))
@@ -1928,7 +1979,7 @@ makeShelleyTransactionBody era@ShelleyBasedEraAllegra
       ShelleyTxBody era
         (Allegra.TxBody
           (Set.fromList (map (toShelleyTxIn . fst) txIns))
-          (Seq.fromList (map (toShelleyTxOut era) txOuts))
+          (Seq.fromList (map (toShelleyTxOut' era) txOuts))
           (case txCertificates of
              TxCertificatesNone    -> Seq.empty
              TxCertificates _ cs _ -> Seq.fromList (map toShelleyCertificate cs))
@@ -2014,7 +2065,7 @@ makeShelleyTransactionBody era@ShelleyBasedEraMary
       ShelleyTxBody era
         (Allegra.TxBody
           (Set.fromList (map (toShelleyTxIn . fst) txIns))
-          (Seq.fromList (map (toShelleyTxOut era) txOuts))
+          (Seq.fromList (map (toShelleyTxOut' era) txOuts))
           (case txCertificates of
              TxCertificatesNone    -> Seq.empty
              TxCertificates _ cs _ -> Seq.fromList (map toShelleyCertificate cs))
@@ -2073,7 +2124,6 @@ makeShelleyTransactionBody era@ShelleyBasedEraAlonzo
                              txValidityRange = (lowerBound, upperBound),
                              txMetadata,
                              txAuxScripts,
-                             txExtraScriptData,
                              txExtraKeyWits,
                              txProtocolParams,
                              txWithdrawals,
@@ -2118,7 +2168,7 @@ makeShelleyTransactionBody era@ShelleyBasedEraAlonzo
           (case txInsCollateral of
              TxInsCollateralNone     -> Set.empty
              TxInsCollateral _ txins -> Set.fromList (map toShelleyTxIn txins))
-          (Seq.fromList (map (toShelleyTxOut era) txOuts))
+          (Seq.fromList (map (toShelleyTxOut' era) txOuts))
           (case txCertificates of
              TxCertificatesNone    -> Seq.empty
              TxCertificates _ cs _ -> Seq.fromList (map toShelleyCertificate cs))
@@ -2182,7 +2232,7 @@ makeShelleyTransactionBody era@ShelleyBasedEraAlonzo
 
     scriptdata :: [ScriptData]
     scriptdata =
-        [ d | BuildTxWith (TxExtraScriptData _ ds) <- [txExtraScriptData], d <- ds ]
+        [ d | TxOut _ _ (TxOutDatum _ d) <- txOuts ]
      ++ [ d | (_, AnyScriptWitness
                     (PlutusScriptWitness
                        _ _ _ (ScriptDatumForTxIn d) _ _)) <- witnesses
@@ -2216,6 +2266,37 @@ makeShelleyTransactionBody era@ShelleyBasedEraAlonzo
         ss = case txAuxScripts of
                TxAuxScriptsNone   -> []
                TxAuxScripts _ ss' -> ss'
+
+-- | A variant of 'toShelleyTxOut' that is used only internally to this module
+-- that works with a 'TxOut' in any context (including CtxTx) by ignoring
+-- embedded datums (taking only their hash).
+--
+toShelleyTxOut' :: forall ctx era ledgerera.
+                   ShelleyLedgerEra era ~ ledgerera
+                => ShelleyBasedEra era
+                -> TxOut ctx era
+                -> Ledger.TxOut ledgerera
+toShelleyTxOut' era (TxOut _ (TxOutAdaOnly AdaOnlyInByronEra _) _) =
+    case era of {}
+
+toShelleyTxOut' _ (TxOut addr (TxOutAdaOnly AdaOnlyInShelleyEra value) _) =
+    Shelley.TxOut (toShelleyAddr addr) (toShelleyLovelace value)
+
+toShelleyTxOut' _ (TxOut addr (TxOutAdaOnly AdaOnlyInAllegraEra value) _) =
+    Shelley.TxOut (toShelleyAddr addr) (toShelleyLovelace value)
+
+toShelleyTxOut' _ (TxOut addr (TxOutValue MultiAssetInMaryEra value) _) =
+    Shelley.TxOut (toShelleyAddr addr) (toMaryValue value)
+
+toShelleyTxOut' _ (TxOut addr (TxOutValue MultiAssetInAlonzoEra value) txoutdata) =
+    Alonzo.TxOut (toShelleyAddr addr) (toMaryValue value)
+                 (toAlonzoTxOutDataHash' txoutdata)
+
+toAlonzoTxOutDataHash' :: TxOutDatum ctx era
+                      -> StrictMaybe (Alonzo.DataHash StandardCrypto)
+toAlonzoTxOutDataHash'  TxOutDatumNone                          = SNothing
+toAlonzoTxOutDataHash' (TxOutDatumHash _ (ScriptDataHash dh))   = SJust dh
+toAlonzoTxOutDataHash' (TxOutDatum'    _ (ScriptDataHash dh) _) = SJust dh
 
 
 -- ----------------------------------------------------------------------------
