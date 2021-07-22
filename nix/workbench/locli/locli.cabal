@@ -20,6 +20,7 @@ library
                        Cardano.Analysis.Profile
                        Cardano.Analysis.TopHandler
 
+                       Cardano.Analysis.API
                        Cardano.Analysis.BlockProp
                        Cardano.Analysis.Driver
                        Cardano.Analysis.MachTimeline
