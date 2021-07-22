@@ -52,6 +52,7 @@ library
 
   exposed-modules:      Cardano.CLI.Helpers
                         Cardano.CLI.Parsers
+                        Cardano.CLI.Render
                         Cardano.CLI.Run
                         Cardano.CLI.Run.Friendly
                         Cardano.CLI.Types
