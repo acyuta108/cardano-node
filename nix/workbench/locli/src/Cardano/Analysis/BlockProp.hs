@@ -446,11 +446,12 @@ isValidBlockObservation BlockObservation{..} =
 blockProp :: ChainInfo -> [(JsonLogfile, [LogObject])] -> IO BlockPropagation
 blockProp ci xs = do
   putStrLn ("blockProp: recovering block event maps" :: String)
-  doBlockProp =<< mapConcurrently (\x -> do
-                                      let evs = fmap deltifyEvents $
-                                                blockEventMapsFromLogObjects ci x
-                                      pure $ DS.rnf evs
-                                      pure evs) xs
+  doBlockProp =<< mapConcurrently
+    (\x ->
+        evaluate $ DS.force $
+        fmap deltifyEvents $
+        blockEventMapsFromLogObjects ci x)
+    xs
 
 doBlockProp :: [MachBlockMap NominalDiffTime] -> IO BlockPropagation
 doBlockProp eventMaps = do
