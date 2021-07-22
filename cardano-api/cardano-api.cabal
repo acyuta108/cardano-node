@@ -71,6 +71,7 @@ library
                         Cardano.Api.OperationalCertificate
                         Cardano.Api.ProtocolParameters
                         Cardano.Api.Query
+                        Cardano.Api.Render
                         Cardano.Api.Script
                         Cardano.Api.ScriptData
                         Cardano.Api.SerialiseBech32
